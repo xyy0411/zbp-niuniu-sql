@@ -7,23 +7,61 @@ import (
 	"gorm.io/gorm"
 	"log"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
+
+type NiuNiuManager struct {
+	ID        uint      `gorm:"column:id;primaryKey;autoIncrement"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	NiuID     uuid.UUID `gorm:"column:niu_id;type:varchar(36);uniqueIndex"`
+	Status    int       `gorm:"column:status;default:0"`
+}
+
+type NewUserInfo struct {
+	ID        uint           `gorm:"column:id;primaryKey;autoIncrement"`
+	CreatedAt time.Time      `gorm:"column:created_at"`
+	UpdatedAt time.Time      `gorm:"column:updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index"`
+
+	UserID   int64     `gorm:"column:user_id;index"`
+	NiuID    uuid.UUID `gorm:"column:niu_id;type:char(36);index"`
+	Length   float64   `gorm:"column:length;default:1"`
+	WeiGe    int       `gorm:"column:wei_ge;default:0"`
+	MeiYao   int       `gorm:"column:mei_yao;default:0"`
+	Artifact int       `gorm:"column:artifact;default:0"`
+	ShenJi   int       `gorm:"column:shen_ji;default:0"`
+	Buff2    int       `gorm:"column:buff2;default:0"`
+	Buff3    int       `gorm:"column:buff3;default:0"`
+	Buff4    int       `gorm:"column:buff4;default:0"`
+	Buff5    int       `gorm:"column:buff5;default:0"`
+}
+
+type NewAuctionInfo struct {
+	ID        uint      `gorm:"column:id;primaryKey;autoIncrement"`
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+
+	UserID int64     `gorm:"column:user_id;index"`
+	NiuID  uuid.UUID `gorm:"column:niu_id;type:varchar(36);uniqueIndex"`
+	Length float64   `gorm:"column:length;default:0.01"`
+	Money  int       `gorm:"column:money"`
+}
 
 type OldUserInfo struct {
 	UID       int64   `gorm:"column:UID"`
 	Length    float64 `gorm:"column:Length"`
 	UserCount int     `gorm:"column:UserCount"`
-	WeiGe     int     `gorm:"column:WeiGe"`    // 伟哥
-	Philter   int     `gorm:"column:Philter"`  // 媚药
-	Artifact  int     `gorm:"column:Artifact"` // 击剑神器
-	ShenJi    int     `gorm:"column:ShenJi"`   // 击剑神稽
-	Buff1     int     `gorm:"column:Buff1"`    // 暂定
-	Buff2     int     `gorm:"column:Buff2"`    // 暂定
-	Buff3     int     `gorm:"column:Buff3"`    // 暂定
-	Buff4     int     `gorm:"column:Buff4"`    // 暂定
-	Buff5     int     `gorm:"column:Buff5"`    // 暂定
+	WeiGe     int     `gorm:"column:WeiGe"`
+	Philter   int     `gorm:"column:Philter"`
+	Artifact  int     `gorm:"column:Artifact"`
+	ShenJi    int     `gorm:"column:ShenJi"`
+	Buff1     int     `gorm:"column:Buff1"`
+	Buff2     int     `gorm:"column:Buff2"`
+	Buff3     int     `gorm:"column:Buff3"`
+	Buff4     int     `gorm:"column:Buff4"`
+	Buff5     int     `gorm:"column:Buff5"`
 }
 
 type OldAuctionInfo struct {
@@ -33,37 +71,91 @@ type OldAuctionInfo struct {
 	Money  int     `gorm:"column:money"`
 }
 
-type NiuNiuManager struct {
-	ID        uint `gorm:"primaryKey"`
-	CreatedAt time.Time
-	NiuID     uuid.UUID `gorm:"type:varchar(36);unique"`
-	Status    int       `gorm:"column:status;default:0"` // 0正常 1拍卖 2注销
+func createUserTableIfNotExists(db *gorm.DB, tableName string) error {
+	createSQL := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at DATETIME,
+  updated_at DATETIME,
+  deleted_at DATETIME,
+  user_id INTEGER,
+  niu_id CHAR(36),
+  length REAL DEFAULT 1,
+  wei_ge INTEGER DEFAULT 0,
+  mei_yao INTEGER DEFAULT 0,
+  artifact INTEGER DEFAULT 0,
+  shen_ji INTEGER DEFAULT 0,
+  buff2 INTEGER DEFAULT 0,
+  buff3 INTEGER DEFAULT 0,
+  buff4 INTEGER DEFAULT 0,
+  buff5 INTEGER DEFAULT 0
+);`, tableName)
+
+	if err := db.Exec(createSQL).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_user_id_idx ON %s(user_id);", tableName, tableName)).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_niu_id_idx ON %s(niu_id);", tableName, tableName)).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
-type NewUserInfo struct {
-	gorm.Model
-	UserID   int64     `gorm:"column:user_id;index"`
-	NiuID    uuid.UUID `gorm:"type:char(36);index"`
-	Length   float64   `gorm:"default:1"`
-	WeiGe    int       `gorm:"default:0"`
-	MeiYao   int       `gorm:"default:0"`
-	Artifact int       `gorm:"default:0"`
-	ShenJi   int       `gorm:"default:0"`
-	Buff2    int       `gorm:"default:0"`
-	Buff3    int       `gorm:"default:0"`
-	Buff4    int       `gorm:"default:0"`
-	Buff5    int       `gorm:"default:0"`
+func createAuctionTableIfNotExists(db *gorm.DB, tableName string) error {
+	createSQL := fmt.Sprintf(`
+CREATE TABLE IF NOT EXISTS %s (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at DATETIME,
+  updated_at DATETIME,
+  user_id INTEGER,
+  niu_id VARCHAR(36),
+  length REAL DEFAULT 0.01,
+  money INTEGER
+);`, tableName)
+
+	if err := db.Exec(createSQL).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_user_id_idx ON %s(user_id);", tableName, tableName)).Error; err != nil {
+		return err
+	}
+	if err := db.Exec(fmt.Sprintf("CREATE UNIQUE INDEX IF NOT EXISTS %s_niu_id_uniq ON %s(niu_id);", tableName, tableName)).Error; err != nil {
+		return err
+	}
+	return nil
 }
 
-type NewAuctionInfo struct {
-	ID        uint `gorm:"primaryKey"`
-	CreatedAt time.Time
-	UpdatedAt time.Time
+func ensureNiuNiuManagerTable(db *gorm.DB) error {
+	if !db.Migrator().HasTable("niu_niu_managers") {
+		createSQL := `
+CREATE TABLE IF NOT EXISTS niu_niu_managers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at DATETIME,
+  niu_id VARCHAR(36),
+  status INTEGER DEFAULT 0
+);`
+		if err := db.Exec(createSQL).Error; err != nil {
+			return err
+		}
+		if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS niu_niu_managers_niu_id_uniq ON niu_niu_managers(niu_id);").Error; err != nil {
+			return err
+		}
+		return nil
+	}
 
-	UserID int64     `gorm:"column:user_id;index"`
-	NiuID  uuid.UUID `gorm:"type:varchar(36);uniqueIndex"`
-	Length float64   `gorm:"default:0.01"`
-	Money  int
+	if !db.Migrator().HasColumn(&NiuNiuManager{}, "niu_id") {
+		if err := db.Migrator().AddColumn(&NiuNiuManager{}, "NiuID"); err != nil {
+			return err
+		}
+	}
+	if !db.Migrator().HasColumn(&NiuNiuManager{}, "status") {
+		if err := db.Migrator().AddColumn(&NiuNiuManager{}, "Status"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -73,7 +165,7 @@ func main() {
 		return
 	}
 
-	if err = sdb.AutoMigrate(NiuNiuManager{}); err != nil {
+	if err = ensureNiuNiuManagerTable(sdb); err != nil {
 		fmt.Println("ERROR:", err)
 		return
 	}
@@ -84,7 +176,6 @@ func main() {
 		return
 	}
 
-	// 迁移用户表
 	for _, groupNum := range userInfoTables {
 		oldTableName := groupNum
 		newTableName := fmt.Sprintf("group_%s_user_info", groupNum)
@@ -97,11 +188,8 @@ func main() {
 		log.Printf("成功迁移表 %s 到 %s", oldTableName, newTableName)
 	}
 
-	// 迁移拍卖表
-	for _, groupNum := range auctionInfoTables {
-		oldTableName := groupNum
-		n := groupNum[8:]
-		newTableName := fmt.Sprintf("group_%s_auction_info", n)
+	for _, oldTableName := range auctionInfoTables {
+		newTableName := fmt.Sprintf("group_%s_auction_info", oldTableName[8:])
 
 		err := migrateAuctionTable(sdb, oldTableName, newTableName)
 		if err != nil {
@@ -122,15 +210,15 @@ func getGroupTables(sdb *gorm.DB) ([]string, []string, error) {
 	var auctionInfoTables []string
 
 	for _, name := range tableNames {
-
-		if name == "sqlite_sequence" || name == "niu_niu_managers" {
-			log.Printf("排除系统表:%s\n", name)
+		if name == "sqlite_sequence" || name == "niu_niu_managers" || strings.HasPrefix(name, "group_") {
 			continue
 		}
 
 		_, err1 := strconv.ParseInt(name, 10, 64)
 		if err1 != nil {
-			auctionInfoTables = append(auctionInfoTables, name)
+			if strings.HasPrefix(name, "auction_") {
+				auctionInfoTables = append(auctionInfoTables, name)
+			}
 			continue
 		}
 		userInfoTables = append(userInfoTables, name)
@@ -139,34 +227,28 @@ func getGroupTables(sdb *gorm.DB) ([]string, []string, error) {
 }
 
 func migrateUserTable(db *gorm.DB, oldTableName, newTableName string) error {
-
-	// 从旧表读取所有数据
 	var oldUsers []OldUserInfo
 	if err := db.Table(oldTableName).Find(&oldUsers).Error; err != nil {
 		return fmt.Errorf("读取旧表数据失败: %v", err)
 	}
 
-	if db.Migrator().HasTable(newTableName) {
-		if err := db.Migrator().DropTable(newTableName); err != nil {
-			return fmt.Errorf("删除已存在的新表失败: %v", err)
+	if !db.Migrator().HasTable(newTableName) {
+		if err := createUserTableIfNotExists(db, newTableName); err != nil {
+			return fmt.Errorf("创建新表失败: %v", err)
 		}
-	}
-
-	if err := db.Table(newTableName).AutoMigrate(&NewUserInfo{}); err != nil {
-		return fmt.Errorf("创建新表失败: %v", err)
+	} else {
+		log.Printf("目标表 %s 已存在，直接向其插入数据（不 Drop）", newTableName)
 	}
 
 	lock := sync.Mutex{}
-	// 转换并插入数据
 	for _, oldUser := range oldUsers {
 		lock.Lock()
 		niuID := uuid.New()
 		lock.Unlock()
 
-		// 插入到niuNiuManager表
 		niuManager := NiuNiuManager{
 			NiuID:  niuID,
-			Status: 0, // 默认状态正常
+			Status: 0,
 		}
 
 		newUser := NewUserInfo{
@@ -190,10 +272,8 @@ func migrateUserTable(db *gorm.DB, oldTableName, newTableName string) error {
 		if err := db.Create(&niuManager).Error; err != nil {
 			return fmt.Errorf("插入niuNiuManager表失败: %v", err)
 		}
-
 	}
 
-	// 删除旧表
 	if err := db.Migrator().DropTable(oldTableName); err != nil {
 		return fmt.Errorf("删除旧表失败: %v", err)
 	}
@@ -202,27 +282,21 @@ func migrateUserTable(db *gorm.DB, oldTableName, newTableName string) error {
 }
 
 func migrateAuctionTable(db *gorm.DB, oldTableName, newTableName string) error {
-	// 从旧表读取所有数据
 	var oldAuctions []OldAuctionInfo
 	if err := db.Table(oldTableName).Find(&oldAuctions).Error; err != nil {
 		return fmt.Errorf("读取旧表数据失败: %v", err)
 	}
 
-	if db.Migrator().HasTable(newTableName) {
-		if err := db.Migrator().DropTable(newTableName); err != nil {
-			return fmt.Errorf("删除已存在的新表失败: %v", err)
+	if !db.Migrator().HasTable(newTableName) {
+		if err := createAuctionTableIfNotExists(db, newTableName); err != nil {
+			return fmt.Errorf("创建新表失败: %v", err)
 		}
-	}
-
-	// 创建新表
-	if err := db.Table(newTableName).AutoMigrate(&NewAuctionInfo{}); err != nil {
-		return fmt.Errorf("创建新表失败: %v", err)
+	} else {
+		log.Printf("目标表 %s 已存在，直接向其插入数据（不 Drop）", newTableName)
 	}
 
 	lock := sync.Mutex{}
-	// 转换并插入数据
 	for _, oldAuction := range oldAuctions {
-
 		lock.Lock()
 		newAuction := NewAuctionInfo{
 			UserID: oldAuction.UserID,
@@ -240,13 +314,11 @@ func migrateAuctionTable(db *gorm.DB, oldTableName, newTableName string) error {
 			Status: 1,
 		}
 
-		// 更新niuNiuManager状态为拍卖中(1)
 		if err := db.Model(&NiuNiuManager{}).Create(&niuNiuManager).Error; err != nil {
 			return fmt.Errorf("更新niuNiuManager状态失败: %v", err)
 		}
 	}
 
-	// 删除旧表
 	if err := db.Migrator().DropTable(oldTableName); err != nil {
 		return fmt.Errorf("删除旧表失败: %v", err)
 	}
